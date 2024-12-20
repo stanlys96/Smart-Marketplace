@@ -2,14 +2,7 @@ import { AppProps } from "next/app";
 import "../src/app/globals.css";
 import "../src/app/secondary.css";
 import { WagmiProvider } from "wagmi";
-import {
-  mainnet,
-  arbitrum,
-  optimism,
-  polygon,
-  lisk,
-  liskSepolia,
-} from "wagmi/chains";
+import { liskSepolia } from "wagmi/chains";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createWeb3Modal } from "@web3modal/wagmi";
 import { defaultWagmiConfig } from "@web3modal/wagmi";
