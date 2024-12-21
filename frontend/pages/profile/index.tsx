@@ -1,20 +1,28 @@
 import Image from "next/image";
 import { useRouter } from "next/router";
-import { FaHome } from "react-icons/fa";
+import { FaHome, FaStar } from "react-icons/fa";
 import { MdShoppingBag } from "react-icons/md";
-import { IoMdInformationCircleOutline } from "react-icons/io";
+import { IoMdInformationCircleOutline, IoMdPerson } from "react-icons/io";
 import { useEffect, useState } from "react";
-import { useReadContract, useAccount, useWriteContract } from "wagmi";
+import {
+  useReadContract,
+  useAccount,
+  useWriteContract,
+  useBalance,
+} from "wagmi";
 import {
   config,
   formatCurrencyString,
+  getAverageRating,
+  getPinataUrl,
+  getTotalEarnings,
   marketplaceAddress,
 } from "../../src/helper/helper";
 import MetaverseMarketplaceABI from "../../src/helper/MetaverseMarketplaceABI.json";
 import { FidgetSpinner } from "react-loader-spinner";
-import { getBalance, waitForTransactionReceipt } from "wagmi/actions";
+import { waitForTransactionReceipt } from "wagmi/actions";
 import { BsPersonFill } from "react-icons/bs";
-import { notification } from "antd";
+import { Empty, notification } from "antd";
 import { ethers } from "ethers";
 import Swal from "sweetalert2";
 
@@ -25,8 +33,13 @@ export default function Profile() {
   const [loading, setLoading] = useState(false);
   const { address } = useAccount();
   const { writeContractAsync } = useWriteContract();
-  const [currentETHBalance, setCurrentETHBalance] = useState("");
-  const [currentMETTBalance, setCurrentMETTBalance] = useState("");
+  const currentBalance = useBalance({ address: address });
+  const currentMettBalance = useBalance({
+    address: address,
+    token:
+      (process.env.NEXT_PUBLIC_METAVERSE_TOKEN_ADDRESS as any) ??
+      "0x0000000000000000000000000000000000000000",
+  });
   const [domLoaded, setDomLoaded] = useState(false);
   const proceedsResult = useReadContract({
     abi: MetaverseMarketplaceABI,
@@ -36,32 +49,17 @@ export default function Profile() {
     args: [address, "ETH"],
   });
 
-  const theBalance = getBalance(config, {
-    address: address ?? "0x0000000000000000000000000000000000000000",
-  });
-  const mettBalance = getBalance(config, {
-    address: address ?? "0x0000000000000000000000000000000000000000",
-    token:
-      (process.env.NEXT_PUBLIC_METAVERSE_TOKEN_ADDRESS as any) ??
-      "0x0000000000000000000000000000000000000000",
+  const userListingResult = useReadContract({
+    abi: MetaverseMarketplaceABI,
+    address: process.env.NEXT_PUBLIC_MARKETPLACE_ADDRESS as any,
+    functionName: "getUserListing",
+    account: address,
   });
 
-  useEffect(() => {
-    theBalance
-      ?.then((result) => {
-        setCurrentETHBalance(result?.formatted);
-      })
-      .catch((err) => {
-        console.log(err);
-      });
-    mettBalance
-      ?.then((result) => {
-        setCurrentMETTBalance(result?.formatted);
-      })
-      .catch((err) => {
-        console.log(err);
-      });
-  }, []);
+  const currentUserSales = (userListingResult?.data as any)?.filter(
+    (result: any) => result?.title && result?.buyers?.length > 0
+  );
+
   useEffect(() => {
     setDomLoaded(true);
   }, []);
@@ -164,13 +162,7 @@ export default function Profile() {
                       "You have successfully received 1000 Metaverse Token!",
                     placement: "topRight",
                   });
-                  mettBalance
-                    ?.then((result) => {
-                      setCurrentMETTBalance(result?.formatted);
-                    })
-                    .catch((err) => {
-                      console.log(err);
-                    });
+                  currentMettBalance?.refetch();
                 }
                 setLoading(false);
               } catch (e: any) {
@@ -187,16 +179,21 @@ export default function Profile() {
             Airdrop 1000 METT
           </button>
         </header>
-        <div className="p-[64px] overflow-y-auto">
+        <div className="pt-[32px] px-[32px] main-body overflow-y-auto">
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-[1rem]">
             <div className="p-[1.5rem] flex flex-col justify-between text-[1.5rem] border border-black rounded-[0.25rem] bg-white">
               <div className="flex gap-x-2 items-center mb-[10px]">
                 <p className="text-black text-[16px]">Balance</p>
                 <IoMdInformationCircleOutline size="22px" />
               </div>
-              <p className="font-bold">{currentETHBalance?.slice(0, 6)} ETH</p>
               <p className="font-bold">
-                {formatCurrencyString(currentMETTBalance)} METT
+                {currentBalance?.data?.formatted?.slice(0, 6)} ETH
+              </p>
+              <p className="font-bold">
+                {formatCurrencyString(
+                  currentMettBalance?.data?.formatted ?? "0"
+                )}{" "}
+                METT
               </p>
             </div>
             <div className="p-[1.5rem] flex flex-col justify-between text-[1.5rem] border border-black rounded-[0.25rem] bg-white">
@@ -204,7 +201,9 @@ export default function Profile() {
                 <p className="text-black text-[16px]">Total earnings</p>
                 <IoMdInformationCircleOutline size="22px" />
               </div>
-              <p className="font-bold">0 ETH</p>
+              <p className="font-bold">
+                {getTotalEarnings(currentUserSales)} ETH
+              </p>
             </div>
             <div className="p-[1.5rem] flex flex-col justify-between text-[1.5rem] border border-black rounded-[0.25rem] bg-white">
               <div className="flex gap-x-2 items-center">
@@ -255,6 +254,81 @@ export default function Profile() {
                   Withdraw
                 </button>
               </div>
+            </div>
+          </div>
+          <div className="mt-[25px]">
+            <p className="text-[32px] font-bold">Best Sales</p>
+            <div
+              className={`flex flex-wrap gap-5 h-full mt-[10px] pb-[40px] w-full`}
+            >
+              {currentUserSales?.length > 0 ? (
+                currentUserSales.map(
+                  (theResult: any) =>
+                    theResult?.buyers?.length > 0 && (
+                      <a
+                        key={theResult?.productCode}
+                        target="_blank"
+                        href={`${process.env.NEXT_PUBLIC_FRONTEND_URL}/product-self/${theResult?.productCode}`}
+                        className="product-card cursor-pointer pb-[10px] flex flex-col items-start justify-center"
+                      >
+                        <Image
+                          layout="contain"
+                          width={100}
+                          height={100}
+                          alt="business"
+                          src={
+                            theResult?.imageUrl
+                              ? getPinataUrl(theResult?.imageUrl ?? "")
+                              : "/audio.svg"
+                          }
+                          className="w-[200px] h-full rounded-t-[0.25rem]"
+                        />
+                        <div className="flex flex-col gap-y-4 py-[15px] px-[1rem] border-t border-b border-black w-full">
+                          <div className="text-ellipsis whitespace-nowrap break-words">
+                            <p className="font-semibold truncate h-full whitespace-nowrap break-words">
+                              {theResult?.title ?? ""}
+                            </p>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <div className="flex gap-x-1 items-center">
+                              <FaStar className="text-yellow-500" />
+                              <p>
+                                {getAverageRating(theResult?.comments ?? [])} (
+                                {theResult?.comments?.length ?? 0})
+                              </p>
+                            </div>
+                            <p>
+                              <span className="font-bold">
+                                {theResult?.buyers?.length ?? 0}
+                              </span>{" "}
+                              buys
+                            </p>
+                          </div>
+                        </div>
+                        <div className="px-[1rem] py-[0.5rem] mt-2 flex justify-start w-full">
+                          <div className="price-container">
+                            <div className="product-price">
+                              <p>
+                                {ethers.formatUnits(
+                                  theResult?.price?.toString(),
+                                  "ether"
+                                )}{" "}
+                                {theResult?.currency}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </a>
+                    )
+                )
+              ) : (
+                <div className="flex justify-center items-center flex-col w-full gap-y-2">
+                  <Empty />
+                  <p className="text-[20px] font-medium">
+                    You have not made any sales...
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>
